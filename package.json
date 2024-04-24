@@ -1,9 +1,13 @@
 {
-  "name": "MongoDB Imposters Repository",
+  "name": "mongodb-imposters-repository",
   "version": "0.0.1",
   "author": "Isabelle Carter <isabellenataliecarter@gmail.com>",
   "description": "",
   "license": "MIT",
+  "contributors": [
+    "Isabelle Carter <isabellenataliecarter@gmail.com>",
+    "Tamil Murugan <tamilsm.dev@gmail.com>"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/ibnc/mountebankMongo.git"
