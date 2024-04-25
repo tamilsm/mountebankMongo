@@ -1,9 +1,13 @@
 {
-  "name": "MongoDB Imposters Repository",
+  "name": "mongodb-imposters-repository",
   "version": "0.0.1",
   "author": "Isabelle Carter <isabellenataliecarter@gmail.com>",
   "description": "",
   "license": "MIT",
+  "contributors": [
+    "Isabelle Carter <isabellenataliecarter@gmail.com>",
+    "Tamil Murugan <tamilsm.dev@gmail.com>"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/ibnc/mountebankMongo.git"
@@ -37,10 +41,10 @@
 
   ],
   "dependencies": {
-    "mongodb": "4.7"
+    "mongodb": "6.5.0"
   },
   "devDependencies": {
-    "mountebank": "^2.6.0",
+    "mountebank": "^2.9.1",
     "coveralls": "3.1.1",
     "eslint": "7.32.0",
     "eslint-plugin-node": "11.1.0",

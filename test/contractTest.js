@@ -203,9 +203,9 @@ describe('mongoDB Imposters Repository', function () {
       }));
       const stopfn = async () => {
         // eslint-disable-next-line no-shadow, node/no-missing-require
-        const mongoImpostersRepo = require('./mongoDBImpostersRepository'),
+        const mongoImpostersRepo = require('../mongoDBImpostersRepository'),
           // eslint-disable-next-line no-shadow, node/no-missing-require
-          Logger = require('./test/fakeLogger'),
+          Logger = require('../test/fakeLogger'),
           // eslint-disable-next-line no-shadow
           impostersRepoConfig = { impostersRepositoryConfig: './test/test_config.json' },
           // eslint-disable-next-line no-shadow
