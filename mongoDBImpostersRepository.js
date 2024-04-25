@@ -180,11 +180,8 @@ function create (config, logger) {
     const imposters = await all();
     if (imposters.length > 0) {
       await imposters.forEach(async imposter => {
-        if (imposter.stop) {
-          const stopFn = eval(imposter.stop.code);
-          if (typeof stopFn === 'function') {
-            await stopFn();
-          }
+        if (imposter.stop && typeof imposter.stop === 'function') {
+          await imposter.stop();
         }
       });
       await client.db(mongoCfg.db).collection('imposters').deleteMany({});
