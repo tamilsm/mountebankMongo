@@ -14,7 +14,7 @@ describe('database concurrency', function () {
     repom = await mongoRepo.create(impostersRepoConfig, logger());
   });
 
-  after(async function() {
+  after(async function () {
     await repom.teardown();
   });
 
