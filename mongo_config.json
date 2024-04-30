@@ -1,5 +1,5 @@
 {
   "uri": "mongodb://127.0.0.1:27017",
-  "db": "MongoImpostersConfig"
+  "db": "mountebank",
   "ip": "123.4.5.6"
 }

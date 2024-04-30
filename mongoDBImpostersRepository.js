@@ -120,6 +120,11 @@ function create (config, logger) {
         doc.session = stub.session;
         delete stub.session;
         doc[key].stubs = stub;
+        if (doc.session === CONSTANTS.SESSION_BASE || doc.session === CONSTANTS.SESSION_PROXY) {
+          doc.ttl = -1;
+        } else {
+          doc.ttl = 60;
+        }
         await client.db(mongoCfg.db).collection(CONSTANTS.COLLECTION_NAME).insertOne(doc);
       }
     }
@@ -141,6 +146,11 @@ function create (config, logger) {
         doc.session = stub.session;
         delete stub.session;
         doc[key].stubs = stub;
+        if (doc.session === CONSTANTS.SESSION_BASE || doc.session === CONSTANTS.SESSION_PROXY) {
+          doc.ttl = -1;
+        } else {
+          doc.ttl = 60;
+        }
         await client.db(mongoCfg.db).collection(CONSTANTS.COLLECTION_NAME).insertOne(doc);
       }
     }
