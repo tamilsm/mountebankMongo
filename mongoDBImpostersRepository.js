@@ -2,6 +2,7 @@
 
 const { MongoClient } = require('mongodb');
 const errors = require('./utils/errors');
+const CONSTANTS = require('./utils/constants');
 
 /* TODO:
  * Error handling
@@ -10,6 +11,7 @@ function create (config, logger) {
   const mongoCfg = getMongoConfig(config, logger),
     client = new MongoClient(mongoCfg.uri);
   client.connect();
+  mongoCfg.ip = mongoCfg.ip.replaceAll('.', ':');
 
   const imposterFns = {};
 
@@ -49,6 +51,53 @@ function create (config, logger) {
     return imposter;
   }
 
+  function combineStubs (imposterList, imposterId) {
+    const key = mongoCfg.ip + ':' + String(imposterId);
+    let imposter = {
+      port: imposterId,
+      protocol: imposterList[0][key].protocol,
+      stubs: []
+    };
+    const proxyIndex = imposterList.findIndex(imp => imp.session === CONSTANTS.SESSION_PROXY);
+    let proxyStub;
+    if (proxyIndex >= 0) {
+      proxyStub = imposterList.splice(proxyIndex, 1)[0][key].stubs;
+    }
+
+    const baseIndex = imposterList.findIndex(imp => imp.session === CONSTANTS.SESSION_BASE);
+    let baseStub;
+    if (baseIndex >= 0) {
+      baseStub = imposterList.splice(baseIndex, 1)[0][key].stubs;
+    }
+
+    if (imposterList.length) {
+      imposterList.forEach(imp => {
+        imposter.stubs = imposter.stubs.concat(imp[key].stubs);
+      });
+    }
+
+    if (baseStub) {
+      imposter.stubs = imposter.stubs.concat(baseStub);
+    }
+
+    if (proxyStub) {
+      imposter.stubs = imposter.stubs.concat(proxyStub);
+    }
+    return imposter;
+  }
+
+  async function getAllImposters () {
+    let allImposters = await client.db(mongoCfg.db).collection(CONSTANTS.COLLECTION_NAME).find().toArray();
+    const ports = [...new Set(allImposters.map(imp => getDocKey(imp)))];
+    let imposters = ports.filter(port => port.includes(mongoCfg.ip)).map(port => {
+      return combineStubs(
+        allImposters.filter(imp => getDocKey(imp) === String(port)),
+        port.replace(mongoCfg.ip + ':', '')
+      );
+    });
+    return imposters;
+  }
+
   /**
    * Adds a new imposter
    * @memberOf module:mongoDBImpostersRepository#
@@ -61,19 +110,45 @@ function create (config, logger) {
     }
 
     const doc = {};
-    doc[imposter.port] = imposter.creationRequest;
-    await client.db(mongoCfg.db).collection('imposters').insertOne(doc);
+    const key = mongoCfg.ip + ':' + imposter.port;
+    doc[key] = {};
+    doc[key].port = imposter.creationRequest.port;
+    doc[key].protocol = imposter.creationRequest.protocol;
+
+    for (const stub of imposter.creationRequest.stubs) {
+      if (stub.session) {
+        doc.session = stub.session;
+        delete stub.session;
+        doc[key].stubs = stub;
+        await client.db(mongoCfg.db).collection(CONSTANTS.COLLECTION_NAME).insertOne(doc);
+      }
+    }
 
     addReference(imposter);
     return imposter;
   }
 
   async function update (imposter) {
-    const doc = {},
-      options = {};
-    doc[imposter.port] = imposter;
-    options[imposter.port] = { $exists: true };
-    await client.db(mongoCfg.db).collection('imposters').replaceOne(options, doc);
+    const doc = {};
+    const key = mongoCfg.ip + ':' + imposter.port;
+
+    doc[key] = {};
+    doc[key].port = imposter.port;
+    doc[key].protocol = imposter.protocol;
+
+    for (const stub of imposter.stubs) {
+      if (stub.session) {
+        doc.session = stub.session;
+        delete stub.session;
+        doc[key].stubs = stub;
+        await client.db(mongoCfg.db).collection(CONSTANTS.COLLECTION_NAME).insertOne(doc);
+      }
+    }
+    // doc[`${key}.stubs`] = imposter.stubs;
+    // doc.session = CONSTANTS.SESSION_BASE;
+    // options[key] = { $exists: true };
+    // options.session = CONSTANTS.SESSION_BASE;
+    // await client.db(mongoCfg.db).collection(CONSTANTS.COLLECTION_NAME).updateOne(options, { $set: doc });
   }
 
   /**
@@ -86,11 +161,13 @@ function create (config, logger) {
     let result;
     const database = client.db(mongoCfg.db),
       options = {};
-    options[id] = { $exists: true };
-    result = await database.collection('imposters').findOne(options);
+    const key = mongoCfg.ip + ':' + id;
+    options[key] = { $exists: true };
+    result = await database.collection(CONSTANTS.COLLECTION_NAME).find(options).toArray();
 
-    if (result) {
-      const imposter = result[String(id)];
+    const imposter = combineStubs(result, id);
+
+    if (imposter) {
       rehydrate(imposter);
       return imposter;
     } else {
@@ -104,8 +181,8 @@ function create (config, logger) {
    * @returns {Object} - all imposters keyed by port
    */
   async function all () {
-    let result = await client.db(mongoCfg.db).collection('imposters').find().toArray();
-    const res = result.map(imp => { return rehydrate(Object.entries(imp)[0][1]); });
+    const imposters = await getAllImposters();
+    const res = imposters.map(imp => { return rehydrate(imp); });
     return res;
   }
 
@@ -119,8 +196,9 @@ function create (config, logger) {
     let result;
     const database = client.db(mongoCfg.db),
       options = {};
-    options[id] = { $exists: true };
-    result = await database.collection('imposters').findOne(options);
+    const key = mongoCfg.ip + ':' + id;
+    options[key] = { $exists: true };
+    result = await database.collection(CONSTANTS.COLLECTION_NAME).findOne(options);
 
     if (result) {
       return true;
@@ -139,18 +217,19 @@ function create (config, logger) {
     let result;
     const database = client.db(mongoCfg.db),
       options = {};
-    options[id] = { $exists: true };
+    const key = mongoCfg.ip + ':' + id;
+    options[key] = { $exists: true };
 
     const imposter = await get(id);
     if (imposter) {
-      result = await database.collection('imposters').findOneAndDelete(options);
+      result = await database.collection(CONSTANTS.COLLECTION_NAME).deleteMany(options);
 
       if (imposter.stop && typeof imposter.stop === 'function') {
         await imposter.stop();
       }
 
       if (result.value) {
-        const res = result.value[String(id)];
+        const res = result.value[key];
         return res;
       } else {
         return null;
@@ -184,7 +263,7 @@ function create (config, logger) {
           await imposter.stop();
         }
       });
-      await client.db(mongoCfg.db).collection('imposters').deleteMany({});
+      await client.db(mongoCfg.db).collection(CONSTANTS.COLLECTION_NAME).deleteMany({});
     }
     if (callback) {
       await callback();
@@ -237,8 +316,8 @@ function create (config, logger) {
    * @returns {Object} - a promise
    */
   async function loadAll (protocols) {
-    let allImposters = await client.db(mongoCfg.db).collection('imposters').find().toArray();
-    const promises = allImposters.map(imposter => loadImposter(Object.entries(imposter)[0][1], protocols));
+    const imposters = await getAllImposters();
+    const promises = imposters.map(imposter => loadImposter(imposter, protocols));
     await Promise.all(promises);
     return;
   }
@@ -259,7 +338,7 @@ function create (config, logger) {
       if (!client || !client.topology || !client.topology.isConnected()) {
         await client.connect();
       }
-      await client.db(mongoCfg.db).dropCollection('imposters');
+      await client.db(mongoCfg.db).dropCollection(CONSTANTS.COLLECTION_NAME);
     } finally {
       await client.close(true);
     }
@@ -589,10 +668,14 @@ async function migrate (config, logger) {
     client = new MongoClient(mongoCfg.uri);
   try {
     await client.connect();
-    await client.db(mongoCfg.db).createCollection('imposters');
+    await client.db(mongoCfg.db).createCollection(CONSTANTS.COLLECTION_NAME);
   } finally {
     await client.close();
   }
+}
+
+function getDocKey (doc) {
+  return Object.entries(doc).find(entry => typeof entry[1] === 'object' && entry[0] !== '_id')[0];
 }
 
 function getMongoConfig (config, logger) {

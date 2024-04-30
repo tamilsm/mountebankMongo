@@ -38,13 +38,11 @@
     "mock",
     "mongodb",
     "mountebank"
-
   ],
   "dependencies": {
     "mongodb": "6.5.0"
   },
   "devDependencies": {
-    "mountebank": "^2.9.1",
     "coveralls": "3.1.1",
     "eslint": "7.32.0",
     "eslint-plugin-node": "11.1.0",
@@ -54,6 +52,7 @@
     "license-checker": "25.0.1",
     "mocha": "9.1.1",
     "mocha-multi-reporters": "1.5.1",
+    "mountebank": "^2.9.1",
     "nc": "^0.0.0",
     "nyc": "^15.1.0",
     "snyk": "1.705.0",
