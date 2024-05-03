@@ -4,9 +4,7 @@ const { MongoClient } = require('mongodb');
 const errors = require('./utils/errors');
 const CONSTANTS = require('./utils/constants');
 
-/* TODO:
- * Error handling
-*/
+
 function create (config, logger) {
   const mongoCfg = getMongoConfig(config, logger),
     client = new MongoClient(mongoCfg.uri);
@@ -58,30 +56,38 @@ function create (config, logger) {
       protocol: imposterList[0][key].protocol,
       stubs: []
     };
-    const proxyIndex = imposterList.findIndex(imp => imp.session === CONSTANTS.SESSION_PROXY);
-    let proxyStub;
-    if (proxyIndex >= 0) {
-      proxyStub = imposterList.splice(proxyIndex, 1)[0][key].stubs;
-    }
 
-    const baseIndex = imposterList.findIndex(imp => imp.session === CONSTANTS.SESSION_BASE);
-    let baseStub;
-    if (baseIndex >= 0) {
-      baseStub = imposterList.splice(baseIndex, 1)[0][key].stubs;
-    }
+    // Proxy stubs
+    const proxyStubs = imposterList.filter(imp => imp.session === CONSTANTS.SESSION_PROXY);
 
-    if (imposterList.length) {
-      imposterList.forEach(imp => {
-        imposter.stubs = imposter.stubs.concat(imp[key].stubs);
+    // Default stubs
+    const baseStubs = imposterList.filter(imp => imp.session === CONSTANTS.SESSION_BASE);
+
+    const shortLivedStubs = imposterList
+      .filter(imp => imp.session !== CONSTANTS.SESSION_PROXY && imp.session !== CONSTANTS.SESSION_BASE);
+
+    if (shortLivedStubs.length) {
+      shortLivedStubs.forEach(imp => {
+        if (imp[key].stubs) {
+          imposter.stubs = imposter.stubs.concat(imp[key].stubs);
+        }
       });
     }
 
-    if (baseStub) {
-      imposter.stubs = imposter.stubs.concat(baseStub);
+    if (baseStubs.length) {
+      baseStubs.forEach(imp => {
+        if (imp[key].stubs) {
+          imposter.stubs = imposter.stubs.concat(imp[key].stubs);
+        }
+      });
     }
 
-    if (proxyStub) {
-      imposter.stubs = imposter.stubs.concat(proxyStub);
+    if (proxyStubs.length) {
+      proxyStubs.forEach(imp => {
+        if (imp[key].stubs) {
+          imposter.stubs = imposter.stubs.concat(imp[key].stubs);
+        }
+      });
     }
     return imposter;
   }
@@ -109,21 +115,31 @@ function create (config, logger) {
       imposter.creationRequest.stubs = [];
     }
 
-    const doc = {};
     const key = mongoCfg.ip + ':' + imposter.port;
-    doc[key] = {};
-    doc[key].port = imposter.creationRequest.port;
-    doc[key].protocol = imposter.creationRequest.protocol;
+
+    if (!imposter.creationRequest.stubs.length) {
+      // Imposter without stubs
+      const doc = {};
+      doc[key] = {};
+      doc[key].port = imposter.creationRequest.port;
+      doc[key].protocol = imposter.creationRequest.protocol;
+      doc.ttl = -1;
+      await client.db(mongoCfg.db).collection(CONSTANTS.COLLECTION_NAME).insertOne(doc);
+    }
 
     for (const stub of imposter.creationRequest.stubs) {
       if (stub.session) {
+        const doc = {};
+        doc[key] = {};
+        doc[key].port = imposter.creationRequest.port;
+        doc[key].protocol = imposter.creationRequest.protocol;
         doc.session = stub.session;
         delete stub.session;
         doc[key].stubs = stub;
         if (doc.session === CONSTANTS.SESSION_BASE || doc.session === CONSTANTS.SESSION_PROXY) {
           doc.ttl = -1;
         } else {
-          doc.ttl = 60;
+          doc.ttl = CONSTANTS.TEMPORARY_TTL;
         }
         await client.db(mongoCfg.db).collection(CONSTANTS.COLLECTION_NAME).insertOne(doc);
       }
@@ -134,23 +150,23 @@ function create (config, logger) {
   }
 
   async function update (imposter) {
-    const doc = {};
     const key = mongoCfg.ip + ':' + imposter.port;
-
-    doc[key] = {};
-    doc[key].port = imposter.port;
-    doc[key].protocol = imposter.protocol;
 
     for (const stub of imposter.stubs) {
       if (stub.session) {
+        const doc = {};
+        doc[key] = {};
+        doc[key].port = imposter.port;
+        doc[key].protocol = imposter.protocol;
         doc.session = stub.session;
         delete stub.session;
-        doc[key].stubs = stub;
+
         if (doc.session === CONSTANTS.SESSION_BASE || doc.session === CONSTANTS.SESSION_PROXY) {
           doc.ttl = -1;
         } else {
-          doc.ttl = 60;
+          doc.ttl = CONSTANTS.TEMPORARY_TTL;
         }
+        doc[key].stubs = stub;
         await client.db(mongoCfg.db).collection(CONSTANTS.COLLECTION_NAME).insertOne(doc);
       }
     }
@@ -175,6 +191,9 @@ function create (config, logger) {
     options[key] = { $exists: true };
     result = await database.collection(CONSTANTS.COLLECTION_NAME).find(options).toArray();
 
+    if (!result.length) {
+      return null;
+    }
     const imposter = combineStubs(result, id);
 
     if (imposter) {
@@ -242,7 +261,7 @@ function create (config, logger) {
         const res = result.value[key];
         return res;
       } else {
-        return null;
+        return imposter;
       }
     } else {
       return null;
@@ -431,6 +450,7 @@ function create (config, logger) {
     }
 
     /**
+     * Might not work as intended with stubs saved as single Docs
      * Inserts a new stub at the given index
      * @memberOf module:mongoDBImpostersRepository#
      * @param {Object} stub - the stub to insert
@@ -445,6 +465,7 @@ function create (config, logger) {
     }
 
     /**
+     * Might not work as intended with stubs saved as single Docs
      * Overwrites the list of stubs with a new list
      * @memberOf module:mongoDBImpostersRepository#
      * @param {Object} newStubs - the new list of stubs
@@ -459,6 +480,7 @@ function create (config, logger) {
     }
 
     /**
+     * Might not work as intended with stubs saved as single Docs
      * Overwrites the stub at the given index with the new stub
      * @memberOf module:mongoDBImpostersRepository#
      * @param {Object} newStub - the new stub
@@ -477,6 +499,7 @@ function create (config, logger) {
     }
 
     /**
+     * Might not work as intended with stubs saved as single Docs
      * Deletes the stub at the given index
      * @memberOf module:mongoDBImpostersRepository#
      * @param {Number} index - the index of the stub to delete
@@ -521,6 +544,7 @@ function create (config, logger) {
     }
 
     /**
+     * Might not work as intended with stubs saved as single Docs
      * Removes the saved proxy responses
      * @memberOf module:mongoDBImpostersRepository#
      * @returns {Object} - Promise
@@ -579,6 +603,7 @@ function create (config, logger) {
       });
 
       /**
+       * Might not work as intended with stubs saved as single Docs
        * Adds a new response to the stub (e.g. during proxying)
        * @memberOf module:mongoDBImpostersRepository#
        * @param {Object} response - the response to add
@@ -689,19 +714,23 @@ function getDocKey (doc) {
 }
 
 function getMongoConfig (config, logger) {
-  if (!config.impostersRepositoryConfig) {
-    logger.error('MissingConfigError: No configuration file for mongodb');
-    throw errors.MissingConfigError('mongodb configuration required');
-  }
-  const fs = require('fs'),
+  if (config.impostersRepositoryConfig) {
+    const fs = require('fs'),
     path = require('path'),
     cfg = path.resolve(path.relative(process.cwd(), config.impostersRepositoryConfig));
-  if (fs.existsSync(cfg)) {
-    return require(cfg);
-  } else {
-    logger.error('configuration file does not exist');
-    throw errors.MissingConfigError('provided config file does not exist');
+    if (fs.existsSync(cfg)) {
+      return require(cfg);
+    }
   }
+  if (!config.connstr) {
+    logger.error('MissingConfigError: No connection string for mongodb');
+    throw errors.MissingConfigError('mongodb connection string required');
+  }
+  return {
+    uri: config.connstr,
+    db: 'imposters',
+    ip: config.ip || ''
+  };
 }
 /**
  * An abstraction for loading imposters from in-memory
